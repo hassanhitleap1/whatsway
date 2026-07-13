@@ -1093,7 +1093,13 @@ export const sendMessage = asyncHandler(async (req: RequestWithChannel, res: Res
         messageType,
         timestamp: new Date(),
         errorDetails: errorInfo,
-        metadata: mediaId ? { headerMediaId: mediaId } : {},
+        // ✅ Store mediaId for failed templates with media headers
+        mediaId: mediaId || undefined,
+        mediaMimeType: headerType ? `${headerType.toLowerCase()}/jpeg` : undefined,
+        metadata: mediaId ? { 
+          headerMediaId: mediaId,
+          headerType: headerType,
+        } : {},
       });
 
       await storage.updateConversation(conversation.id, {
@@ -1155,6 +1161,17 @@ export const sendMessage = asyncHandler(async (req: RequestWithChannel, res: Res
     });
   }
 
+  // ================= GET MEDIA URL FOR TEMPLATE WITH MEDIA HEADER =================
+  let templateMediaUrl: string | undefined;
+  if (mediaId && messageType === "template") {
+    try {
+      templateMediaUrl = await whatsappApi.getMediaUrl(mediaId);
+      console.log("🌐 Template media URL retrieved:", templateMediaUrl);
+    } catch (err) {
+      console.warn("⚠️ Failed to get template media URL:", err);
+    }
+  }
+
   const createdMessage = await storage.createMessage({
     conversationId: conversation.id,
     content: msgBody,
@@ -1164,13 +1181,20 @@ export const sendMessage = asyncHandler(async (req: RequestWithChannel, res: Res
     whatsappMessageId: result.messages?.[0]?.id,
     messageType,
     timestamp: new Date(),
+    // ✅ Store mediaId and mediaUrl for templates with media headers
+    mediaId: mediaId || undefined,
+    mediaUrl: templateMediaUrl || undefined,
+    mediaMimeType: headerType ? `${headerType.toLowerCase()}/jpeg` : undefined,
     metadata: file
       ? {
           mimeType: file.mimetype,
           originalName: file.originalname,
         }
       : mediaId
-      ? { headerMediaId: mediaId }
+      ? { 
+          headerMediaId: mediaId,
+          headerType: headerType,
+        }
       : {},
   });
 
