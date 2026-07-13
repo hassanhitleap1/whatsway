@@ -101,8 +101,10 @@ export default function StorageSettingsModal({
     setForm((prev) => ({
       ...prev,
       provider,
-      endpoint: preset.endpoint,
-      region: preset.region,
+      // Only update endpoint/region if switching to a provider with presets
+      // For custom, preserve existing values
+      endpoint: provider === 'custom' && prev.endpoint ? prev.endpoint : preset.endpoint,
+      region: provider === 'custom' && prev.region ? prev.region : preset.region,
     }));
   };
 
@@ -111,6 +113,26 @@ export default function StorageSettingsModal({
   };
 
   const handleSubmit = async () => {
+    // Demo user protection
+    if (user?.username === "demoadmin" || user?.username === "demouser") {
+      toast({
+        title: "Demo Account",
+        description: "Storage settings cannot be modified in demo mode.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Frontend validation
+    if (!form.spaceName || !form.endpoint || !form.accessKey || !form.secretKey) {
+      toast({
+        title: "Missing Required Fields",
+        description: "Please fill in Bucket Name, Endpoint, Access Key, and Secret Key.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setLoading(true);
     try {
       const res = await apiRequest("POST", "/api/storage-settings/update", form);
@@ -249,7 +271,7 @@ export default function StorageSettingsModal({
           </Button>
           <Button 
             onClick={handleSubmit} 
-            disabled={loading || user?.username === "demoadmin" || user?.username === "demouser" || !form.spaceName || !form.endpoint || !form.accessKey || !form.secretKey}
+            disabled={loading}
           >
             {loading ? "Saving..." : "Save Configuration"}
           </Button>
