@@ -410,10 +410,11 @@ export const handleDigitalOceanUpload = async (
       return next();
     }
 
-    const { s3, bucket, endpoint } = doClient;
-    console.log(`☁️ Uploading to DigitalOcean Spaces: ${bucket}`);
+    const { s3, bucket, endpoint, accessKey, provider } = doClient;
+    const isStorj = provider === 'storj' || endpoint.includes('storj');
+    console.log(`☁️ Uploading to ${isStorj ? 'Storj' : 'Cloud Storage'}: ${bucket}`);
 
-    // Upload to DigitalOcean Spaces
+    // Upload to Cloud Storage
     for (const file of files) {
       try {
         console.log(`\n📤 Uploading: ${file.originalname}`);
@@ -447,9 +448,17 @@ export const handleDigitalOceanUpload = async (
         );
 
         // Construct cloud URL
-        const endpointUrl = new URL(endpoint || "");
-        // console.log('endpointUrl:', endpointUrl);
-        file.cloudUrl = `https://${bucket}.${endpointUrl.host}/${fileKey}`;
+        let cloudUrl: string;
+        if (isStorj) {
+          // Storj linksharing format
+          cloudUrl = `https://link.storjshare.io/raw/${accessKey}/${bucket}/${fileKey}`;
+          console.log(`   🔗 Using Storj linksharing URL`);
+        } else {
+          // Standard S3 format
+          const endpointUrl = new URL(endpoint || "");
+          cloudUrl = `https://${bucket}.${endpointUrl.host}/${fileKey}`;
+        }
+        file.cloudUrl = cloudUrl;
 
         console.log(`   ✅ Upload successful!`);
         console.log(`   🌐 Cloud URL: ${file.cloudUrl}`);

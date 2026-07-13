@@ -10,6 +10,8 @@ type DOClientResult = {
   s3: S3Client;
   bucket: string;
   endpoint: string;
+  accessKey: string;
+  provider: string;
 } | null;
 
 type CacheEntry = {
@@ -90,6 +92,8 @@ export const createDOClient = async (): Promise<DOClientResult> => {
       s3: s3Client,
       bucket: config.spaceName,
       endpoint: cleanEndpoint,
+      accessKey: config.accessKey,
+      provider: config.provider || 'digitalocean',
     };
 
     cache.set(CACHE_KEY, { value: result, expiresAt: now + CACHE_TTL_MS });
