@@ -102,8 +102,9 @@ const MessageComposer = ({
                 ref={fileInputRef}
                 type="file"
                 hidden
+                multiple
                 onChange={onFileChange}
-                accept="image/*,video/*,audio/*,.pdf,.doc,.docx"
+                accept="image/*,video/*"
               />
 
                 <TemplatePickerDialog

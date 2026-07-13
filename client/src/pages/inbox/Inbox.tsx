@@ -62,10 +62,10 @@ export default function Inbox() {
   const templateRefetchTimersRef = useRef<NodeJS.Timeout[]>([]);
 
 
-  // new functionality added for image upload
+  // new functionality added for image upload - now supports multiple files
 
-const [selectedMediaFile, setSelectedMediaFile] = useState<File | null>(null);
-const [mediaPreviewUrl, setMediaPreviewUrl] = useState("");
+const [selectedMediaFiles, setSelectedMediaFiles] = useState<File[]>([]);
+const [mediaPreviewUrls, setMediaPreviewUrls] = useState<string[]>([]);
 const [showMediaPreview, setShowMediaPreview] = useState(false);
 
 const [sendingMedia, setSendingMedia] = useState(false);
@@ -933,38 +933,62 @@ socketInstance.on("conversation_updated", (data) => {
   const handleFileChange = (
   event: React.ChangeEvent<HTMLInputElement>
 ) => {
-  const file = event.target.files?.[0];
+  const files = event.target.files;
 
-  if (!file) return;
+  if (!files || files.length === 0) return;
 
-  setSelectedMediaFile(file);
-  setMediaPreviewUrl(URL.createObjectURL(file));
+  const newFiles = Array.from(files);
+  const newUrls = newFiles.map(file => URL.createObjectURL(file));
+  
+  setSelectedMediaFiles(prev => [...prev, ...newFiles]);
+  setMediaPreviewUrls(prev => [...prev, ...newUrls]);
   setShowMediaPreview(true);
 
   event.target.value = "";
 };
 
+  const handleRemoveMediaFile = (index: number) => {
+    // Revoke the URL to prevent memory leaks
+    URL.revokeObjectURL(mediaPreviewUrls[index]);
+    
+    setSelectedMediaFiles(prev => prev.filter((_, i) => i !== index));
+    setMediaPreviewUrls(prev => prev.filter((_, i) => i !== index));
+    
+    // Close preview if no files left
+    if (selectedMediaFiles.length <= 1) {
+      setShowMediaPreview(false);
+    }
+  };
+
 
 const handleSendMediaMessage = async () => {
-  if (!selectedMediaFile || !selectedConversation) return;
+  if (selectedMediaFiles.length === 0 || !selectedConversation) return;
   setSendingMedia(true);
-  const formData = new FormData();
-
-  formData.append("media", selectedMediaFile);
-  formData.append("fromUser", "true");
-  formData.append("conversationId", selectedConversation.id);
-  formData.append("caption", mediaCaption || "");
 
   try {
-    await apiRequestFormData(
-      "POST",
-      `/api/conversations/${selectedConversation.id}/messages`,
-      formData
-    );
+    // Send each file as a separate message
+    for (let i = 0; i < selectedMediaFiles.length; i++) {
+      const file = selectedMediaFiles[i];
+      const formData = new FormData();
+      
+      formData.append("media", file);
+      formData.append("fromUser", "true");
+      formData.append("conversationId", selectedConversation.id);
+      // Only add caption to the first file (or all files, depending on preference)
+      formData.append("caption", i === 0 ? (mediaCaption || "") : "");
+
+      await apiRequestFormData(
+        "POST",
+        `/api/conversations/${selectedConversation.id}/messages`,
+        formData
+      );
+    }
 
     toast({
       title: t("common.success"),
-      description: t("inbox.toasts.mediaSent"),
+      description: selectedMediaFiles.length > 1 
+        ? `${selectedMediaFiles.length} files sent successfully`
+        : t("inbox.toasts.mediaSent"),
     });
 
     queryClient.invalidateQueries({
@@ -973,9 +997,12 @@ const handleSendMediaMessage = async () => {
       ),
     });
 
+    // Cleanup URLs
+    mediaPreviewUrls.forEach(url => URL.revokeObjectURL(url));
+    
     setMediaCaption("");
-    setSelectedMediaFile(null);
-    setMediaPreviewUrl("");
+    setSelectedMediaFiles([]);
+    setMediaPreviewUrls([]);
     setShowMediaPreview(false);
   } catch (error: any) {
     toast({
@@ -983,6 +1010,8 @@ const handleSendMediaMessage = async () => {
       description: error.message,
       variant: "destructive",
     });
+  } finally {
+    setSendingMedia(false);
   }
 };
 
@@ -990,11 +1019,10 @@ const handleSendMediaMessage = async () => {
 
 useEffect(() => {
   return () => {
-    if (mediaPreviewUrl) {
-      URL.revokeObjectURL(mediaPreviewUrl);
-    }
+    // Cleanup all preview URLs on unmount
+    mediaPreviewUrls.forEach(url => URL.revokeObjectURL(url));
   };
-}, [mediaPreviewUrl]);
+}, [mediaPreviewUrls]);
 
 
   const updateConversationStatus = (status: string) => {
@@ -1284,69 +1312,100 @@ useEffect(() => {
 
 
       {showMediaPreview && (
-  <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center">
-    <div className="bg-white rounded-xl p-4 w-[500px] max-w-[95vw]">
+  <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
+    <div className="bg-white rounded-xl p-4 w-[600px] max-w-[95vw] max-h-[90vh] overflow-y-auto">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="font-semibold text-gray-900">
+          {selectedMediaFiles.length} {selectedMediaFiles.length === 1 ? 'file' : 'files'} selected
+        </h3>
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          className="text-sm text-green-600 hover:text-green-700 font-medium"
+        >
+          + Add more
+        </button>
+      </div>
       
-      <img
-        src={mediaPreviewUrl}
-        alt="preview"
-        className="w-full h-[350px] object-contain rounded-xl bg-gray-100"
-      />
-
-      {/* <textarea
-        value={messageText}
-        onChange={(e) => setMessageText(e.target.value)}
-        placeholder="Add a caption..."
-        className="w-full border rounded-lg p-3 mt-4"
-      /> */}
-
+      {/* Media Grid Preview */}
+      <div className={`grid gap-2 ${selectedMediaFiles.length === 1 ? 'grid-cols-1' : 'grid-cols-2'} ${selectedMediaFiles.length > 4 ? 'grid-cols-3' : ''}`}>
+        {selectedMediaFiles.map((file, index) => (
+          <div key={index} className="relative group">
+            {file.type.startsWith('video/') ? (
+              <video
+                src={mediaPreviewUrls[index]}
+                className="w-full h-[150px] object-cover rounded-lg bg-gray-100"
+                muted
+              />
+            ) : (
+              <img
+                src={mediaPreviewUrls[index]}
+                alt={`preview-${index}`}
+                className="w-full h-[150px] object-cover rounded-lg bg-gray-100"
+              />
+            )}
+            {/* File type badge */}
+            <span className="absolute bottom-2 left-2 bg-black/60 text-white text-xs px-2 py-0.5 rounded">
+              {file.type.startsWith('video/') ? 'Video' : 'Image'}
+            </span>
+            {/* Remove button */}
+            <button
+              onClick={() => handleRemoveMediaFile(index)}
+              className="absolute top-2 right-2 bg-red-500 hover:bg-red-600 text-white rounded-full w-6 h-6 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+            >
+              ×
+            </button>
+          </div>
+        ))}
+      </div>
 
       <textarea
-  value={mediaCaption}
-  onChange={(e) => setMediaCaption(e.target.value)}
-  placeholder="Add a caption..."
-  rows={3}
-  className="
-    w-full
-    border
-    border-gray-300
-    rounded-xl
-    p-3
-    mt-4
-    resize-none
-    focus:outline-none
-    focus:ring-2
-    focus:ring-green-500
-  "
-/>
+        value={mediaCaption}
+        onChange={(e) => setMediaCaption(e.target.value)}
+        placeholder="Add a caption..."
+        rows={3}
+        className="
+          w-full
+          border
+          border-gray-300
+          rounded-xl
+          p-3
+          mt-4
+          resize-none
+          focus:outline-none
+          focus:ring-2
+          focus:ring-green-500
+        "
+      />
 
       <div className="flex justify-end gap-2 mt-4">
         <button
           onClick={() => {
+            mediaPreviewUrls.forEach(url => URL.revokeObjectURL(url));
             setShowMediaPreview(false);
-            setSelectedMediaFile(null);
-            setMediaPreviewUrl("");
+            setSelectedMediaFiles([]);
+            setMediaPreviewUrls([]);
+            setMediaCaption("");
           }}
-          className="px-4 py-2 border rounded-lg"
+          className="px-4 py-2 border rounded-lg hover:bg-gray-50"
         >
           Cancel
         </button>
 
-       <button
-  onClick={handleSendMediaMessage}
-  disabled={sendingMedia}
-  className="
-    px-5
-    py-2
-    bg-green-600
-    hover:bg-green-700
-    text-white
-    rounded-xl
-    disabled:opacity-50
-  "
->
-  {sendingMedia ? "Sending..." : "Send"}
-</button>
+        <button
+          onClick={handleSendMediaMessage}
+          disabled={sendingMedia || selectedMediaFiles.length === 0}
+          className="
+            px-5
+            py-2
+            bg-green-600
+            hover:bg-green-700
+            text-white
+            rounded-xl
+            disabled:opacity-50
+          "
+        >
+          {sendingMedia ? "Sending..." : `Send ${selectedMediaFiles.length > 1 ? `(${selectedMediaFiles.length})` : ''}`}
+        </button>
       </div>
     </div>
   </div>
