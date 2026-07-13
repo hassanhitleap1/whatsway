@@ -200,15 +200,6 @@ export const createMessage = asyncHandler(async (req: Request, res: Response) =>
           mediaId = await whatsappApi.uploadMediaBuffer(buffer, mimeType, file.originalname);
           console.log("✅ Media uploaded to WhatsApp, ID:", mediaId);
 
-          // Get WhatsApp media URL (optional, for DB storage)
-          try {
-            mediaUrl = await whatsappApi.getMediaUrl(mediaId);
-            console.log("🌐 Meta media URL retrieved:", mediaUrl);
-          } catch (err) {
-            console.warn("⚠️ Failed to get Meta media URL, using cloud/local fallback");
-            mediaUrl = (file as any).cloudUrl || `/uploads/${path.basename(path.dirname(file.path))}/${file.filename || file.originalname}`;
-          }
-
           // Determine message type
           if (mimeType.startsWith("image")) messageType = "image";
           else if (mimeType.startsWith("video")) messageType = "video";
@@ -223,15 +214,30 @@ export const createMessage = asyncHandler(async (req: Request, res: Response) =>
             caption || content
           );
           msgBody = caption || `[${messageType}]`;
+          
+          // ✅ Construct local/cloud media URL for database storage
+          if ((file as any).cloudUrl) {
+            // Cloud storage URL (Digital Ocean Spaces)
+            mediaUrl = (file as any).cloudUrl;
+            console.log("🌐 Using cloud URL:", mediaUrl);
+          } else {
+            // Local storage URL
+            const userId = path.basename(path.dirname(file.path));
+            const fileName = file.filename || file.originalname;
+            mediaUrl = `/uploads/${userId}/${fileName}`;
+            console.log("💾 Using local URL:", mediaUrl);
+          }
         } finally {
-          // 🗑️ CLEANUP: Always delete the local file after processing
-          if (shouldUnlink && filePath && fs.existsSync(filePath)) {
+          // 🗑️ CLEANUP: Only delete local file if uploaded to cloud
+          if (shouldUnlink && filePath && fs.existsSync(filePath) && (file as any).cloudUrl) {
             try {
               fs.unlinkSync(filePath);
-              console.log(`   🗑️ Local file cleaned up: ${filePath}`);
+              console.log(`   🗑️ Local file cleaned up (cloud backup exists): ${filePath}`);
             } catch (err) {
               console.warn(`   ⚠️ Cleanup failed for ${filePath}:`, err);
             }
+          } else if (shouldUnlink && filePath) {
+            console.log(`   💾 Keeping local file (no cloud backup): ${filePath}`);
           }
         }
 
@@ -262,14 +268,14 @@ export const createMessage = asyncHandler(async (req: Request, res: Response) =>
         type: messageType,
         timestamp: new Date(),
         mediaId: mediaId || undefined,
-        mediaUrl: mediaUrl || file?.cloudUrl || undefined,
+        mediaUrl: mediaUrl || undefined,
         mediaMimeType: file?.mimetype || undefined,
         metadata: file
           ? {
               mimeType: file.mimetype,
               originalName: file.originalname,
-              cloudUrl: file.cloudUrl,
-              isCloud: !!file.cloudUrl,
+              cloudUrl: mediaUrl || (file as any).cloudUrl,
+              isCloud: !!(file as any).cloudUrl,
               fileSize: file.size,
             }
           : {}

@@ -25,6 +25,7 @@ import { requireAuth } from "../middlewares/auth.middleware";
 import { requireSubscription } from "../middlewares/requireSubscription";
 import { insertWhatsappChannelSchema } from "@shared/schema";
 import fs from "fs";
+import path from "path";
 
 
 
@@ -781,17 +782,32 @@ app.post(
         mediaFile.originalname
       );
 
-      fs.unlinkSync(mediaFile.path);
+      // ✅ Construct local file URL for backup
+      const userId = path.basename(path.dirname(mediaFile.path));
+      const fileName = mediaFile.filename || mediaFile.originalname;
+      const localUrl = `/uploads/${userId}/${fileName}`;
+      
+      console.log("💾 Local backup URL:", localUrl);
+      
+      // 🗑️ Only delete if cloud storage is configured
+      const hasCloudUrl = !!(mediaFile as any).cloudUrl;
+      if (hasCloudUrl) {
+        fs.unlinkSync(mediaFile.path);
+        console.log("🗑️ Local file deleted (cloud backup exists)");
+      } else {
+        console.log("💾 Keeping local file (no cloud storage)");
+      }
 
-      // ✅ Template update
+      // ✅ Template update - store both mediaId and local URL
       await storage.updateTemplate(templateId, {
-        mediaUrl: mediaId,
+        mediaUrl: mediaId,  // This is actually the WhatsApp mediaId
         mediaType: "image",
       });
 
       return res.json({
         success: true,
         mediaId,
+        localUrl,
         message: "Image uploaded and saved to template successfully",
       });
     } catch (error: any) {
