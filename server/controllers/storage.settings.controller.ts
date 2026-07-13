@@ -52,6 +52,7 @@ export const updateStorageSetting = async (req: Request, res: Response) => {
   try {
     const {
       id,
+      provider,
       spaceName,
       endpoint,
       region,
@@ -74,6 +75,7 @@ export const updateStorageSetting = async (req: Request, res: Response) => {
       await db
         .update(storageSettings)
         .set({
+          provider: provider || 'storj',
           spaceName,
           endpoint,
           region,
@@ -86,6 +88,7 @@ export const updateStorageSetting = async (req: Request, res: Response) => {
     } else {
       // insert new
       await db.insert(storageSettings).values({
+        provider: provider || 'storj',
         spaceName,
         endpoint,
         region,
@@ -127,23 +130,34 @@ export const testStorageConnection = async (req: Request, res: Response) => {
       cleanEndpoint = urlParts.toString();
     }
 
+    // Determine if we should use path-style or virtual-hosted-style
+    const isStorj = cleanEndpoint.includes('storj.io') || cleanEndpoint.includes('storjshare.io');
+    const forcePathStyle = !isStorj;
+
     const s3Client = new S3Client({
       endpoint: cleanEndpoint,
-      region: config.region,
+      region: config.region || 'auto',
       credentials: {
         accessKeyId: config.accessKey,
         secretAccessKey: config.secretKey,
       },
-      forcePathStyle: false,
+      forcePathStyle: forcePathStyle,
     });
 
     try {
+      console.log(`🔍 Testing connection to ${config.provider || 'storage'}: ${cleanEndpoint}`);
+      console.log(`   Bucket: ${config.spaceName}, forcePathStyle: ${forcePathStyle}`);
+      
       await s3Client.send(new HeadBucketCommand({ Bucket: config.spaceName }));
+      
+      console.log('✅ Storage connection successful');
       return res.json({ success: true, status: "online" });
     } finally {
       s3Client.destroy();
     }
   } catch (error: any) {
+    console.error('❌ Storage connection failed:', error.message);
+    
     const message = error?.name === "NotFound"
       ? "Bucket not found"
       : error?.name === "CredentialsProviderError" || error?.Code === "InvalidAccessKeyId"

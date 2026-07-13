@@ -68,17 +68,23 @@ export const createDOClient = async (): Promise<DOClientResult> => {
     console.log(`   Cleaned Endpoint: ${cleanEndpoint}`);
     console.log(`   Is Active: ${config.isActive}`);
 
+    // Determine if we should use path-style or virtual-hosted-style
+    // Storj uses virtual-hosted-style (forcePathStyle: false)
+    // Some providers like MinIO use path-style (forcePathStyle: true)
+    const isStorj = cleanEndpoint.includes('storj.io') || cleanEndpoint.includes('storjshare.io');
+    const forcePathStyle = !isStorj; // Use virtual-hosted for Storj, path-style for others
+
     const s3Client = new S3Client({
       endpoint: cleanEndpoint,
-      region: config.region,
+      region: config.region || 'auto',
       credentials: {
         accessKeyId: config.accessKey,
         secretAccessKey: config.secretKey,
       },
-      forcePathStyle: false,
+      forcePathStyle: forcePathStyle,
     });
 
-    console.log("✅ S3 Client created successfully");
+    console.log(`✅ S3 Client created successfully (forcePathStyle: ${forcePathStyle})`);
 
     const result: DOClientResult = {
       s3: s3Client,
